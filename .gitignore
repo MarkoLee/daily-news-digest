@@ -1,0 +1,9 @@
+.DS_Store
+public/.DS_Store
+__pycache__/
+*.pyc
+.env
+.venv/
+data/state.json
+.mempalace-checkpoint.txt
+

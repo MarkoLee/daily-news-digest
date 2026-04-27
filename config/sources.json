@@ -1,0 +1,32 @@
+[
+  {
+    "name": "OpenAI News",
+    "type": "rss",
+    "url": "https://openai.com/news/rss.xml"
+  },
+  {
+    "name": "Anthropic News",
+    "type": "html",
+    "url": "https://www.anthropic.com/news"
+  },
+  {
+    "name": "TechCrunch",
+    "type": "rss",
+    "url": "https://techcrunch.com/feed/"
+  },
+  {
+    "name": "The Verge",
+    "type": "rss",
+    "url": "https://www.theverge.com/rss/index.xml"
+  },
+  {
+    "name": "Ars Technica",
+    "type": "rss",
+    "url": "https://feeds.arstechnica.com/arstechnica/index"
+  },
+  {
+    "name": "Hacker News Frontpage",
+    "type": "rss",
+    "url": "https://hnrss.org/frontpage"
+  }
+]
