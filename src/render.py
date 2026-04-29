@@ -23,14 +23,14 @@ def render_text(date_str: str, main_items: list[RankedItem], backup_items: list[
     lines.append("")
     lines.append("主列表")
     for index, item in enumerate(main_items, start=1):
-        lines.append(f"{index}. {item.title}")
-        lines.append(f"   摘要：{item.summary}")
+        lines.append(f"{index}. {item.display_title or item.title}")
+        lines.append(f"   摘要：{item.display_summary or item.summary}")
         lines.append(f"   来源：{item.source}")
         lines.append(f"   摘要页：{public_url}")
     lines.append("")
     lines.append(settings["watch_block_title"])
     for item in backup_items:
-        lines.append(f"- {item.title} | {item.source} | {public_url}")
+        lines.append(f"- {item.display_title or item.title} | {item.source} | {public_url}")
     return "\n".join(lines)
 
 
@@ -79,8 +79,8 @@ def render_item_html(item: RankedItem, ranked_index: int | None) -> str:
     prefix = f"{ranked_index}. " if ranked_index is not None else ""
     return f"""
     <div class="item">
-      <div><strong>{escape(prefix + item.title)}</strong></div>
-      <div>{escape(item.summary)}</div>
+      <div><strong>{escape(prefix + (item.display_title or item.title))}</strong></div>
+      <div>{escape(item.display_summary or item.summary)}</div>
       <div class="source">{escape(item.source)} | <a href="{escape(item.url)}" target="_blank" rel="noopener noreferrer">原文</a></div>
     </div>
     """
@@ -90,4 +90,4 @@ def infer_top_line(items: list[RankedItem]) -> str:
     if not items:
         return "今天暂无符合规则的高优先级条目。"
     first = items[0]
-    return f"今天最值得先看的方向：{first.title}"
+    return f"今天最值得先看的方向：{first.display_title or first.title}"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import concurrent.futures
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -33,9 +34,17 @@ class _AnthropicNewsParser(HTMLParser):
         self.current_href = ""
         self.current_text: list[str] = []
         self.items: list[dict[str, str]] = []
+        self.last_title_by_url: dict[str, str] = {}
+        self.last_href = ""
+        self.capture_context = False
+        self.context_buffer: list[str] = []
+        self.seen_context_for_href: set[str] = set()
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag != "a":
+            if self.last_href and tag in {"p", "div", "span"}:
+                self.capture_context = True
+                self.context_buffer = []
             return
         attr_map = dict(attrs)
         href = attr_map.get("href") or ""
@@ -43,25 +52,71 @@ class _AnthropicNewsParser(HTMLParser):
             self.in_anchor = True
             self.current_href = href
             self.current_text = []
+            self.last_href = href
 
     def handle_data(self, data: str) -> None:
         if self.in_anchor:
             self.current_text.append(data.strip())
+        elif self.capture_context:
+            self.context_buffer.append(data.strip())
 
     def handle_endtag(self, tag: str) -> None:
         if tag != "a" or not self.in_anchor:
+            if self.capture_context and tag in {"p", "div", "span"} and self.last_href:
+                context_text = clean_summary(" ".join(part for part in self.context_buffer if part))
+                if context_text and self.last_href not in self.seen_context_for_href:
+                    self.seen_context_for_href.add(self.last_href)
+                    title = self.last_title_by_url.get(self.last_href, "")
+                    self.items.append(
+                        {
+                            "title": title,
+                            "url": f"https://www.anthropic.com{self.last_href}",
+                            "summary": context_text,
+                        }
+                    )
+                self.capture_context = False
+                self.context_buffer = []
             return
         text = " ".join(part for part in self.current_text if part).strip()
         if text and len(text) > 12:
+            cleaned_title = clean_anthropic_title(text)
+            self.last_title_by_url[self.current_href] = cleaned_title
             self.items.append(
                 {
-                    "title": clean_anthropic_title(text),
+                    "title": cleaned_title,
                     "url": f"https://www.anthropic.com{self.current_href}",
+                    "summary": "",
                 }
             )
         self.in_anchor = False
         self.current_href = ""
         self.current_text = []
+
+
+class _AnthropicArticleParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.capture_p = False
+        self.current_p: list[str] = []
+        self.paragraphs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "p":
+            self.capture_p = True
+            self.current_p = []
+
+    def handle_data(self, data: str) -> None:
+        if self.capture_p:
+            self.current_p.append(data.strip())
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != "p" or not self.capture_p:
+            return
+        text = clean_summary(" ".join(part for part in self.current_p if part))
+        if len(text) >= 40:
+            self.paragraphs.append(text)
+        self.capture_p = False
+        self.current_p = []
 
 
 def load_sources(path: str | Path) -> list[dict[str, Any]]:
@@ -70,21 +125,29 @@ def load_sources(path: str | Path) -> list[dict[str, Any]]:
 
 def fetch_all(sources: list[dict[str, Any]]) -> list[NewsItem]:
     items: list[NewsItem] = []
-    for source in sources:
-        try:
-            source_type = source["type"]
-            if source_type == "rss":
-                items.extend(fetch_rss_source(source["name"], source["url"]))
-            elif source_type == "html":
-                items.extend(fetch_anthropic_news(source["name"], source["url"]))
-        except Exception as exc:
-            print(f"Skip source: {source['name']} | {exc}")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(sources), 6) or 1) as executor:
+        futures = [executor.submit(fetch_source_safe, source) for source in sources]
+        for future in concurrent.futures.as_completed(futures):
+            items.extend(future.result())
     return items
+
+
+def fetch_source_safe(source: dict[str, Any]) -> list[NewsItem]:
+    try:
+        source_type = source["type"]
+        if source_type == "rss":
+            return fetch_rss_source(source["name"], source["url"])
+        if source_type == "html":
+            return fetch_anthropic_news(source["name"], source["url"])
+        return []
+    except Exception as exc:
+        print(f"Skip source: {source['name']} | {exc}")
+        return []
 
 
 def fetch_url(url: str) -> str:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=20) as response:
+    with urllib.request.urlopen(request, timeout=8) as response:
         return response.read().decode("utf-8", errors="ignore")
 
 
@@ -132,18 +195,32 @@ def fetch_anthropic_news(source_name: str, url: str) -> list[NewsItem]:
         if normalized in seen:
             continue
         seen.add(normalized)
+        raw_summary = candidate.get("summary", "") or "Anthropic newsroom update."
         items.append(
             NewsItem(
                 title=candidate["title"],
                 url=candidate["url"],
                 source=source_name,
                 published_at=datetime.now(timezone.utc).isoformat(),
-                raw_summary="Anthropic newsroom update.",
+                raw_summary=raw_summary,
             )
         )
         if len(items) >= 20:
             break
     return items
+
+
+def fetch_anthropic_article_summary(url: str) -> str:
+    try:
+        html = fetch_url(url)
+    except Exception:
+        return ""
+    parser = _AnthropicArticleParser()
+    parser.feed(html)
+    for paragraph in parser.paragraphs:
+        if not looks_like_noise(paragraph):
+            return paragraph[:260]
+    return ""
 
 
 def text_or_empty(node: ET.Element | None) -> str:
@@ -180,3 +257,17 @@ def clean_anthropic_title(value: str) -> str:
     text = re.sub(r"\b[A-Z][a-z]{2} \d{1,2}, \d{4}\b", " ", text)
     text = re.sub(r"\s+", " ", text).strip(" -")
     return text
+
+
+def looks_like_noise(text: str) -> bool:
+    lower = text.lower()
+    return any(
+        token in lower
+        for token in (
+            "subscribe",
+            "cookie",
+            "javascript",
+            "privacy policy",
+            "terms of service",
+        )
+    )

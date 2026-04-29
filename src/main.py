@@ -8,7 +8,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from deliver import send_feishu
-from fetch import fetch_all, load_sources
+from fetch import fetch_all, fetch_anthropic_article_summary, load_sources
+from localize import localize_ranked_items
 from rank import rank_items, load_settings
 from render import build_digest_id, render_html, render_text
 
@@ -35,6 +36,9 @@ def main() -> None:
 
     items = fetch_all(sources)
     main_items, backup_items = rank_items(items, settings)
+    hydrate_anthropic_main_summaries(main_items)
+    main_items = localize_ranked_items(main_items)
+    backup_items = localize_ranked_items(backup_items)
 
     digest_id = build_digest_id(date_str, [item.fingerprint for item in main_items + backup_items])
     previous_key = state.get("last_send_idempotency_key")
@@ -120,6 +124,19 @@ def ensure_public_index(date_str: str) -> None:
 </html>
 """
     index_path.write_text(index_html)
+
+
+def hydrate_anthropic_main_summaries(main_items) -> None:
+    for item in main_items:
+        if item.source != "Anthropic News":
+            continue
+        if item.raw_summary != "Anthropic newsroom update.":
+            continue
+        fetched = fetch_anthropic_article_summary(item.url)
+        if not fetched:
+            continue
+        item.raw_summary = fetched
+        item.summary = fetched
 
 
 if __name__ == "__main__":

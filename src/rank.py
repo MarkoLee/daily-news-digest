@@ -21,6 +21,8 @@ class RankedItem:
     score: float
     fingerprint: str
     section: str
+    display_title: str = ""
+    display_summary: str = ""
 
 
 def load_settings(path: str | Path) -> dict:
@@ -45,6 +47,8 @@ def rank_items(items: list[NewsItem], settings: dict) -> tuple[list[RankedItem],
             score=score,
             fingerprint=fingerprint,
             section="main",
+            display_title=item.title,
+            display_summary=summary,
         )
         existing = deduped.get(fingerprint)
         if existing is None or candidate.score > existing.score:

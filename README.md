@@ -21,12 +21,15 @@ python3 src/main.py
 - `FEISHU_WEBHOOK_URL`
 - `PUBLIC_BASE_URL`
 - `GITHUB_PAGES_BASE_URL`
+- `GOOGLE_TRANSLATE_API_KEY`
 
 `PUBLIC_BASE_URL` 示例：
 
 - `https://<your-user>.github.io/<repo-name>`
 
 `GITHUB_PAGES_BASE_URL` 和 `PUBLIC_BASE_URL` 二选一即可。
+
+`GOOGLE_TRANSLATE_API_KEY` 用于把最终英文摘要稳定翻译成中文。
 
 推荐直接用 GitHub Pages：
 
